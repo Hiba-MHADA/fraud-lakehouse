@@ -1,3 +1,4 @@
+import argparse
 import json
 import random
 import time
@@ -9,9 +10,15 @@ from confluent_kafka import Producer
 COUNTRIES = ["MA", "FR", "ES", "DE", "US", "GB", "IT", "AE"]
 MERCHANTS = ["grocery", "fuel", "restaurant", "electronics", "travel", "online_shop", "atm"]
 N_CARDS = 5000
-RATE = 100       # événements par seconde
-DURATION = 10    # secondes
-FRAUD_RATE = 0.01  # 1 % de fraude
+parser = argparse.ArgumentParser()
+parser.add_argument("--rate", type=int, default=100, help="événements par seconde")
+parser.add_argument("--duration", type=int, default=10, help="durée en secondes (0 = infini)")
+parser.add_argument("--fraud-rate", type=float, default=0.01, help="proportion de fraude")
+args = parser.parse_args()
+
+RATE = args.rate
+DURATION = args.duration
+FRAUD_RATE = args.fraud_rate
 
 # Chaque carte a un pays d'origine et un montant habituel
 cards = {
@@ -56,15 +63,16 @@ producer = Producer({"bootstrap.servers": "localhost:9092"})
 
 sent = 0
 start = time.time()
-while time.time() - start < DURATION:
+while DURATION == 0 or time.time() - start < DURATION:
     loop_start = time.time()
     for _ in range(RATE):
         tx = make_transaction()
         producer.produce("transactions", key=tx["card_id"], value=json.dumps(tx))
         producer.poll(0)
     sent += RATE
-    print(f"{sent} événements envoyés")
+    print(f"{sent} événements envoyés ({sent / (time.time() - start):.0f}/s)")
     time.sleep(max(0, 1 - (time.time() - loop_start)))
 
 producer.flush()
-print("Terminé")
+elapsed = time.time() - start
+print(f"Terminé : {sent} événements en {elapsed:.1f}s ({sent / elapsed:.0f}/s)")

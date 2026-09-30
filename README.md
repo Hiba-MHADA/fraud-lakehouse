@@ -19,6 +19,7 @@ docker compose up -d
 - [x] Couche silver (JSON décodé, typé, nettoyé)
 - [x] Couche gold (features par carte)
 - [x] Modèle ML (XGBoost + MLflow)
+- [x] Scoring temps réel (topic fraud_alerts)
 - [ ] Dashboard Streamlit
 
 ## Benchmarks
@@ -64,3 +65,10 @@ Le goulot d'étranglement est le générateur, pas Kafka.
 - Suivi des expériences avec MLflow (base SQLite locale).
 
 ![Run MLflow](docs/mlflow_run.png)
+## Scoring temps réel (phase 4)
+- Un consumer Python lit le topic `transactions`, recalcule les features par carte (état en mémoire : somme, compteur, fenêtre d'une heure) et applique le modèle XGBoost.
+- Les alertes sont publiées dans le topic `fraud_alerts`.
+- Test à 500 événements/s pendant 30 s : 15 000 transactions, 149 fraudes détectées sur 149, 27 fausses alertes (précision environ 85 %).
+- Latence moyenne de bout en bout : 598 ms, en hausse pendant le test (le scorer mono-processus suit à peine le débit).
+- Les features sont calculées avant la mise à jour de l'état de la carte (pas de fuite de données).
+- Limite : le scorer garde son état en mémoire. S'il redémarre, il perd l'historique des cartes (démarrage à froid).

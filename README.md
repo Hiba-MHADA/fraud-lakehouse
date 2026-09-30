@@ -17,7 +17,7 @@ docker compose up -d
 - [x] Générateur de transactions
 - [x] Couche bronze (Kafka vers Delta Lake)
 - [x] Couche silver (JSON décodé, typé, nettoyé)
-- [ ] Couche gold (features par carte)
+- [x] Couche gold (features par carte)
 - [ ] Modèle ML
 - [ ] Dashboard Streamlit
 
@@ -52,3 +52,5 @@ Le goulot d'étranglement est le générateur, pas Kafka.
   s'arrête, ce qui économise la RAM.
 - Stockage Delta Lake dans un dossier local : MinIO n'est plus distribué sur
   Docker Hub, et la RAM est limitée.
+- Les features gold n'utilisent que l'historique passé de la carte (les fenêtres excluent la ligne courante), pour éviter toute fuite de données.
+- Limite connue : `tx_1h` n'a pas de pouvoir discriminant avec le générateur actuel (pas de fraudes en rafale). Les fraudes générées sont aussi trop faciles à détecter (montant x15, toujours à l'étranger) : on les rendra plus ambiguës.

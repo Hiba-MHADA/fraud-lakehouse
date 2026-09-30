@@ -18,7 +18,7 @@ docker compose up -d
 - [x] Couche bronze (Kafka vers Delta Lake)
 - [x] Couche silver (JSON décodé, typé, nettoyé)
 - [x] Couche gold (features par carte)
-- [ ] Modèle ML
+- [x] Modèle ML (XGBoost + MLflow)
 - [ ] Dashboard Streamlit
 
 ## Benchmarks
@@ -54,3 +54,11 @@ Le goulot d'étranglement est le générateur, pas Kafka.
   Docker Hub, et la RAM est limitée.
 - Les features gold n'utilisent que l'historique passé de la carte (les fenêtres excluent la ligne courante), pour éviter toute fuite de données.
 - Limite connue : `tx_1h` n'a pas de pouvoir discriminant avec le générateur actuel (pas de fraudes en rafale). Les fraudes générées sont aussi trop faciles à détecter (montant x15, toujours à l'étranger) : on les rendra plus ambiguës.
+## Modèle de détection (XGBoost)
+- Découpage chronologique 80/20 : entraînement sur le passé (183 600 lignes, 1 814 fraudes), test sur le futur (45 900 lignes, 458 fraudes).
+- `scale_pos_weight` pour compenser le déséquilibre, seuil de décision à 0,5.
+- Résultats sur le test : précision 0,816, rappel 0,980, F1 0,891, PR-AUC 0,984.
+- Environ 449 fraudes détectées sur 458, pour 101 fausses alertes sur 45 442 transactions normales.
+- `is_foreign` porte 97,5 % de l'importance. Les fausses alertes viennent des voyages légitimes à l'étranger (5 % des transactions normales).
+- Limite : données synthétiques faciles (fraudes toujours à l'étranger, montant x15). Les scores sont donc optimistes.
+- Suivi des expériences avec MLflow (base SQLite locale).

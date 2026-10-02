@@ -6,8 +6,18 @@ Plateforme de détection de fraude en temps réel (big data).
 Kafka (KRaft), Spark Structured Streaming, Delta Lake, Docker, Python 3.12
 
 ## Architecture
-Générateur Python -> Kafka (topic `transactions`) -> Spark -> Delta bronze -> Delta silver
-
+```mermaid
+flowchart LR
+    G[Générateur Python] --> K[(Kafka<br/>transactions)]
+    K --> B[Bronze<br/>Delta Lake]
+    B --> S[Silver]
+    S --> Go[Gold<br/>features par carte]
+    Go --> M[XGBoost + MLflow]
+    K --> SC[Scorer temps réel]
+    M --> SC
+    SC --> A[(Kafka<br/>fraud_alerts)]
+    A --> D[Dashboard Streamlit]
+```
 ## Démarrage
 docker compose up -d
 
@@ -72,3 +82,8 @@ Le goulot d'étranglement est le générateur, pas Kafka.
 - Latence moyenne de bout en bout : 598 ms, en hausse pendant le test (le scorer mono-processus suit à peine le débit).
 - Les features sont calculées avant la mise à jour de l'état de la carte (pas de fuite de données).
 - Limite : le scorer garde son état en mémoire. S'il redémarre, il perd l'historique des cartes (démarrage à froid).
+## Dashboard (Streamlit)
+Cinq onglets : temps réel, analyse, carte des fraudes, enquête par carte, état du pipeline. La barre latérale permet de filtrer les alertes et de démarrer le scorer et le générateur.
+
+![Dashboard](docs/dashboard.png)
+![Carte des fraudes](docs/dashboard_map.png)

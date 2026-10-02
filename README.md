@@ -22,7 +22,7 @@ flowchart LR
     R[Rejeu du jeu ULB] --> KR[(Kafka<br/>transactions_real)]
     KR --> BR[Bronze réel]
     BR --> SR[Silver réel]
-    SR --> MR[XGBoost réel]
+    SR --> MR[XGBoost réel<br/>seuil selon le coût]
 ```
 
 ## Avancement
@@ -36,7 +36,7 @@ flowchart LR
 - [x] Scoring temps réel (topic `fraud_alerts`)
 - [x] Dashboard Streamlit
 - [x] Validation sur données réelles (jeu ULB) : bronze, silver, modèle
-- [ ] Seuil de décision choisi selon le coût (`ml/cost_threshold.py`)
+- [x] Seuil de décision choisi selon le coût (`ml/cost_threshold.py`)
 
 ## Benchmarks
 
@@ -118,6 +118,21 @@ Précautions :
 - Le test ne contient que 75 fraudes : une fraude de plus ou de moins déplace le rappel d'environ 1,3 point. Les chiffres sont indicatifs.
 - Ce tableau est calculé sur le test : il montre le compromis précision / rappel, mais ne doit pas servir à choisir le seuil (le seuil se choisit sur un jeu de validation séparé).
 
+## Seuil de décision selon le coût (données réelles)
+- Modèle réentraîné sur 60 % des lignes (170 884 lignes, 360 fraudes), seuil choisi sur 20 % de validation (56 961 lignes, 57 fraudes), évalué sur 20 % de test (56 962 lignes, 75 fraudes), toujours dans l'ordre chronologique.
+- Coût supposé : une fraude manquée coûte son montant, une alerte coûte 5 euros (vérification).
+- Résultats sur le test :
+
+| Stratégie | Coût | Précision | Rappel | Alertes |
+|---|---|---|---|---|
+| Aucun modèle | 7 729 euros | n/a | n/a | 0 |
+| Seuil 0,5 | 2 978 euros | 0,838 | 0,760 | 68 |
+| Seuil optimal 0,04 (choisi sur la validation) | 3 275 euros | 0,341 | 0,813 | 179 |
+
+- Le modèle réduit le coût de 61 % par rapport à l'absence de modèle (seuil 0,5).
+- Le seuil optimisé sur la validation (0,04) fait moins bien sur le test que le seuil 0,5 : avec seulement 57 fraudes en validation, le seuil optimal n'est pas stable. Conclusion : sur si peu de fraudes, le seuil par défaut est plus fiable qu'un seuil optimisé. Une validation croisée ou un jeu plus grand serait nécessaire pour affiner ce choix.
+- Le coût de 5 euros par alerte est une hypothèse : le seuil optimal dépend directement de ce paramètre.
+
 ## Limites
 - Les données synthétiques sont faciles (fraudes toujours à l'étranger, montant environ 15 fois supérieur) : les scores sont optimistes.
 - `tx_1h` n'a aucun pouvoir discriminant avec le générateur actuel (pas de fraudes en rafale).
@@ -125,7 +140,8 @@ Précautions :
 - Le scorer est un processus unique, avec l'état des cartes en mémoire : il suit à peine 500 événements/s et perd son historique s'il redémarre.
 - Le jeu réel est anonymisé (pas de pays, de commerçant ni de carte) : les features par carte et le dashboard par pays ne s'y appliquent pas.
 - Seulement 75 fraudes dans le test réel : résultats indicatifs.
-- Le scorer temps réel utilise le modèle entraîné sur les données synthétiques, pas celui des données réelles.
+- Le choix du seuil selon le coût est instable : la validation ne contient que 57 fraudes.
+- Le scorer temps réel et le dashboard utilisent le modèle entraîné sur les données synthétiques, pas celui des données réelles.
 
 ## Reproduire le projet
 
@@ -152,4 +168,4 @@ Pipeline réel :
 1. `python ml/download_ulb.py` télécharge le jeu depuis OpenML.
 2. `python generator/replay_ulb.py --rate 500` le rejoue dans Kafka.
 3. `streaming/bronze_real.py` puis `silver_real.py` (même méthode que ci-dessus).
-4. `python ml/train_real.py`.
+4. `python ml/train_real.py`, puis `python ml/cost_threshold.py`.

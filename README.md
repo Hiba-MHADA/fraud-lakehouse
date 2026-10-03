@@ -23,6 +23,7 @@ flowchart LR
     KR --> BR[Bronze réel]
     BR --> SR[Silver réel]
     SR --> MR[XGBoost réel<br/>seuil selon le coût]
+    MR --> DR[Dashboard données réelles]
 ```
 
 ## Avancement
@@ -37,6 +38,7 @@ flowchart LR
 - [x] Dashboard Streamlit
 - [x] Validation sur données réelles (jeu ULB) : bronze, silver, modèle
 - [x] Seuil de décision choisi selon le coût (`ml/cost_threshold.py`)
+- [x] Dashboard des données réelles (six onglets)
 
 ## Benchmarks
 
@@ -133,6 +135,18 @@ Précautions :
 - Le seuil optimisé sur la validation (0,04) fait moins bien sur le test que le seuil 0,5 : avec seulement 57 fraudes en validation, le seuil optimal n'est pas stable. Conclusion : sur si peu de fraudes, le seuil par défaut est plus fiable qu'un seuil optimisé. Une validation croisée ou un jeu plus grand serait nécessaire pour affiner ce choix.
 - Le coût de 5 euros par alerte est une hypothèse : le seuil optimal dépend directement de ce paramètre.
 
+## Dashboard des données réelles
+Six onglets : vue d'ensemble, exploration des variables, modèle (matrice de confusion, courbe précision / rappel, importance des variables), coût selon le seuil, rejeu en direct des transactions les plus récentes, état du pipeline. Le seuil de décision et le coût d'une alerte se règlent dans la barre latérale.
+
+![Vue d'ensemble](docs/real_1_overview.png)
+![Exploration](docs/real_2_explore.png)
+![Modèle](docs/real_3_model.png)
+![Coût](docs/real_4_cost.png)
+![Rejeu en direct](docs/real_5_replay.png)
+![Pipeline](docs/real_6_pipeline.png)
+
+Lancement : `streamlit run dashboard/app_real.py --server.port 8502`
+
 ## Limites
 - Les données synthétiques sont faciles (fraudes toujours à l'étranger, montant environ 15 fois supérieur) : les scores sont optimistes.
 - `tx_1h` n'a aucun pouvoir discriminant avec le générateur actuel (pas de fraudes en rafale).
@@ -141,7 +155,7 @@ Précautions :
 - Le jeu réel est anonymisé (pas de pays, de commerçant ni de carte) : les features par carte et le dashboard par pays ne s'y appliquent pas.
 - Seulement 75 fraudes dans le test réel : résultats indicatifs.
 - Le choix du seuil selon le coût est instable : la validation ne contient que 57 fraudes.
-- Le scorer temps réel et le dashboard utilisent le modèle entraîné sur les données synthétiques, pas celui des données réelles.
+- Le scorer temps réel Kafka et le premier dashboard utilisent le modèle entraîné sur les données synthétiques. Le dashboard des données réelles utilise le modèle entraîné sur le jeu ULB, mais rejoue les transactions en local, sans passer par le scorer Kafka.
 
 ## Reproduire le projet
 
@@ -169,3 +183,4 @@ Pipeline réel :
 2. `python generator/replay_ulb.py --rate 500` le rejoue dans Kafka.
 3. `streaming/bronze_real.py` puis `silver_real.py` (même méthode que ci-dessus).
 4. `python ml/train_real.py`, puis `python ml/cost_threshold.py`.
+5. `streamlit run dashboard/app_real.py --server.port 8502` lance le dashboard des données réelles.

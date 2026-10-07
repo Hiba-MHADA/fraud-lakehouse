@@ -146,7 +146,10 @@ Six onglets : vue d'ensemble, exploration des variables, modèle (matrice de con
 ![Pipeline](docs/real_6_pipeline.png)
 
 Lancement : `streamlit run dashboard/app_real.py --server.port 8502`
-
+## Flux temps réel sur données réelles
+- Rejeu de 10 000 transactions les plus récentes (lignes 227 845 à 237 844, jamais vues par le modèle) à 300 transactions/s, dans Kafka (`transactions_real`), scorées par `ml/score_stream_real.py` (modèle entraîné sur le jeu ULB), alertes publiées dans `fraud_alerts_real` et lues en direct par le dashboard.
+- Résultats du test : 13 fraudes détectées, 2 fraudes manquées, 3 fausses alertes.
+- Latence de bout en bout : entre 300 et 1 100 ms selon le paquet (scorer Python unique).
 ## Limites
 - Les données synthétiques sont faciles (fraudes toujours à l'étranger, montant environ 15 fois supérieur) : les scores sont optimistes.
 - `tx_1h` n'a aucun pouvoir discriminant avec le générateur actuel (pas de fraudes en rafale).

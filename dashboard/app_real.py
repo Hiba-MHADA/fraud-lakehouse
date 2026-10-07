@@ -1,4 +1,9 @@
+import json
+import os
+import subprocess
+import sys
 import time
+from collections import deque
 
 import numpy as np
 import pandas as pd
@@ -94,7 +99,7 @@ st.sidebar.info("Le modèle est entraîné sur les 80 % les plus anciens. "
 st.markdown('<h1 class="hero">Détection de fraude sur données réelles'
             '<span class="tag">ULB</span></h1>', unsafe_allow_html=True)
 tabs = st.tabs(["📊 Vue d'ensemble", "🔎 Exploration", "🎯 Modèle", "💶 Coût",
-                "▶️ Rejeu en direct", "⚙️ Pipeline"])
+                "📡 Flux temps réel", "⚙️ Pipeline"])
 
 with tabs[0]:
     nf = int(DF.is_fraud.sum())
@@ -197,15 +202,14 @@ with tabs[3]:
                "il n'est pas stable : en validation, le seuil « optimal » s'est avéré moins bon "
                "que 0,5 (voir le README).")
 
-with tabs[4]:
-    st.write("Les transactions les plus récentes sont rejouées par paquets et scorées par le modèle, "
-             "avec le seuil de la barre latérale. Aucun Kafka n'est nécessaire pour cet onglet.")
+def simulated():
+    st.write("Les transactions les plus récentes sont rejouées par paquets et scorées en local, "
+             "avec le seuil de la barre latérale. Aucun Kafka n'est nécessaire.")
     c1, c2 = st.columns(2)
     n = c1.slider("Nombre de transactions", 1000, 30000, 10000, 1000)
     batch = c2.slider("Transactions par paquet", 100, 1000, 250, 50)
-    if st.button("▶ Lancer le rejeu"):
-        kp = st.columns(5)
-        ph = [c.empty() for c in kp]
+    if st.button("▶ Lancer le rejeu simulé"):
+        ph = [c.empty() for c in st.columns(5)]
         chart, table = st.empty(), st.empty()
         TP = FP = FN = TN = 0
         hist, last_df = [], pd.DataFrame()
@@ -232,6 +236,116 @@ with tabs[4]:
             time.sleep(0.25)
         st.success(f"Rejeu terminé : {TP} fraudes détectées, {FN} manquées, {FP} fausses alertes.")
 
+
+@st.cache_resource
+def live_state():
+    from confluent_kafka import Consumer
+    c = Consumer({"bootstrap.servers": "localhost:9092",
+                  "group.id": f"dash-real-{int(time.time())}",
+                  "auto.offset.reset": "earliest"})
+    c.subscribe(["fraud_alerts_real"])
+    return {"c": c, "run": 0, "alerts": deque(maxlen=2000), "stats": [], "procs": {}, "t0": 0}
+
+
+def live_poll(L):
+    for m in L["c"].consume(num_messages=2000, timeout=0.3):
+        if m.error():
+            continue
+        d = json.loads(m.value())
+        if d["run_id"] > L["run"]:
+            L["run"] = d["run_id"]
+            L["alerts"].clear()
+            L["stats"] = []
+        if d["run_id"] < L["run"]:
+            continue
+        if d["type"] == "stats":
+            L["stats"] = (L["stats"] + [d])[-5000:]
+        else:
+            L["alerts"].append(d)
+
+
+def running(L, name):
+    p = L["procs"].get(name)
+    return p is not None and p.poll() is None
+
+
+def launch(L, name, args):
+    if not running(L, name):
+        L["procs"][name] = subprocess.Popen([sys.executable, *args],
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@st.fragment(run_every=2)
+def live_view():
+    L = live_state()
+    live_poll(L)
+    if not L["stats"]:
+        st.info("En attente du scorer et du rejeu (Kafka doit tourner).")
+        return
+    s = L["stats"][-1]
+    pr, rc, _ = prf(s["tp"], s["fp"], s["fn"])
+    k = st.columns(6)
+    k[0].metric("Traitées", f"{s['processed']:,}")
+    k[1].metric("Alertes", s["tp"] + s["fp"])
+    k[2].metric("Fraudes détectées", s["tp"])
+    k[3].metric("Fraudes manquées", s["fn"])
+    k[4].metric("Fausses alertes", s["fp"])
+    k[5].metric("Latence (dernier paquet)", f"{s['lat_win']:.0f} ms")
+    st.caption(f"Précision en cours : {pr:.3f}, rappel en cours : {rc:.3f}")
+    h = pd.DataFrame(L["stats"])
+    h["alertes"] = h.tp + h.fp
+    a, b = st.columns(2)
+    a.subheader("Cumul depuis le début du rejeu")
+    m = h.rename(columns={"tp": "fraudes détectées", "fn": "fraudes manquées"})
+    m = m.melt("processed", ["alertes", "fraudes détectées", "fraudes manquées"],
+               var_name="série", value_name="n")
+    fig = px.line(m, x="processed", y="n", color="série",
+                  color_discrete_sequence=[AMBER, CYAN, RED])
+    a.plotly_chart(style(fig, 300, legend=True), width="stretch", key="lv_cum")
+    b.subheader("Latence de bout en bout (ms)")
+    fig = px.line(h, x="processed", y="lat_win", color_discrete_sequence=[CYAN])
+    b.plotly_chart(style(fig, 300), width="stretch", key="lv_lat")
+    st.subheader("Dernières alertes")
+    al = pd.DataFrame(list(L["alerts"])[-15:][::-1])
+    if not al.empty:
+        al["classe"] = al.is_fraud.map({1: "Fraude", 0: "Fausse alerte"})
+        st.dataframe(al[["row_id", "Amount", "score", "classe", "latency_ms"]],
+                     hide_index=True, width="stretch",
+                     column_config={"score": st.column_config.ProgressColumn(
+                         "Score", min_value=0, max_value=1, format="%.2f")})
+
+
+with tabs[4]:
+    local = os.path.exists("data/silver/transactions_real")
+    mode = st.radio("Mode", ["Kafka (temps réel)", "Simulé (sans Kafka)"],
+                    index=0 if local else 1, horizontal=True)
+    if mode.startswith("Simulé"):
+        simulated()
+    else:
+        L = live_state()
+        st.write("Flux : rejeu du fichier, topic `transactions_real`, scorer, topic "
+                 "`fraud_alerts_real`, ce dashboard. Le rejeu commence à la ligne 227 845 : "
+                 "ce sont les transactions les plus récentes, que le modèle n'a jamais vues.")
+        c1, c2, c3 = st.columns(3)
+        rate = c1.slider("Débit (transactions/s)", 50, 1000, 300, 50)
+        nb = c2.slider("Nombre de transactions", 1000, 50000, 10000, 1000)
+        if c3.button("Arrêter le scorer") and running(L, "scorer"):
+            L["procs"]["scorer"].terminate()
+        b1, b2 = st.columns(2)
+        if b1.button("1. Démarrer le scorer"):
+            launch(L, "scorer", ["ml/score_stream_real.py", "--threshold", str(thr)])
+            L["t0"] = time.time()
+        if b2.button("2. Lancer le rejeu"):
+            if not running(L, "scorer"):
+                st.warning("Démarre d'abord le scorer.")
+            elif time.time() - L["t0"] < 15:
+                st.warning("Attends 15 secondes après le démarrage du scorer.")
+            else:
+                launch(L, "replay", ["generator/replay_ulb.py", "--rate", str(rate),
+                                     "--start", "227845", "--limit", str(nb)])
+        st.caption(f"Scorer : {'en marche' if running(L, 'scorer') else 'arrêté'} | "
+                   f"Rejeu : {'en cours' if running(L, 'replay') else 'arrêté'}")
+        live_view()
 with tabs[5]:
     def kafka_count():
         try:

@@ -8,6 +8,7 @@ Tout tourne sur un PC portable de 8 Go de RAM (Docker limité à 4 Go).
 Kafka 3.8 (mode KRaft), Spark 3.5.3 Structured Streaming, Delta Lake 3.2, XGBoost, MLflow, Streamlit et Plotly, Docker, Python 3.12 (géré avec `uv`).
 
 ## Architecture
+![Architecture](docs/architecture.png).
 ```mermaid
 flowchart LR
     G[Générateur Python] --> K[(Kafka<br/>transactions)]
@@ -124,7 +125,6 @@ Précautions :
 - Modèle réentraîné sur 60 % des lignes (170 884 lignes, 360 fraudes), seuil choisi sur 20 % de validation (56 961 lignes, 57 fraudes), évalué sur 20 % de test (56 962 lignes, 75 fraudes), toujours dans l'ordre chronologique.
 - Coût supposé : une fraude manquée coûte son montant, une alerte coûte 5 euros (vérification).
 - Résultats sur le test :
-
 | Stratégie | Coût | Précision | Rappel | Alertes |
 |---|---|---|---|---|
 | Aucun modèle | 7 729 euros | n/a | n/a | 0 |
@@ -136,7 +136,7 @@ Précautions :
 - Le coût de 5 euros par alerte est une hypothèse : le seuil optimal dépend directement de ce paramètre.
 
 ## Dashboard des données réelles
-Six onglets : vue d'ensemble, exploration des variables, modèle (matrice de confusion, courbe précision / rappel, importance des variables), coût selon le seuil, rejeu en direct des transactions les plus récentes, état du pipeline. Le seuil de décision et le coût d'une alerte se règlent dans la barre latérale.
+Six onglets : vue d'ensemble, exploration des variables, modèle (matrice de confusion, courbe précision / rappel, importance des variables), coût selon le seuil, flux temps réel (rejeu dans Kafka, scorer, alertes lues en direct, avec un mode simulé sans Kafka), état du pipeline. Le seuil de décision et le coût d'une alerte se règlent dans la barre latérale.
 
 ![Vue d'ensemble](docs/real_1_overview.png)
 ![Exploration](docs/real_2_explore.png)
@@ -158,7 +158,7 @@ Lancement : `streamlit run dashboard/app_real.py --server.port 8502`
 - Le jeu réel est anonymisé (pas de pays, de commerçant ni de carte) : les features par carte et le dashboard par pays ne s'y appliquent pas.
 - Seulement 75 fraudes dans le test réel : résultats indicatifs.
 - Le choix du seuil selon le coût est instable : la validation ne contient que 57 fraudes.
-- Le scorer temps réel Kafka et le premier dashboard utilisent le modèle entraîné sur les données synthétiques. Le dashboard des données réelles utilise le modèle entraîné sur le jeu ULB, mais rejoue les transactions en local, sans passer par le scorer Kafka.
+- Le scorer temps réel Kafka et le premier dashboard utilisent le modèle entraîné sur les données synthétiques. Le dashboard des données réelles a deux modes : un flux Kafka de bout en bout (local, avec Docker) et un rejeu simulé (utilisé en ligne, où Kafka n’existe pas). Le scorer Kafka de app.py utilise le modèle synthétique.
 
 ## Reproduire le projet
 
@@ -187,3 +187,4 @@ Pipeline réel :
 3. `streaming/bronze_real.py` puis `silver_real.py` (même méthode que ci-dessus).
 4. `python ml/train_real.py`, puis `python ml/cost_threshold.py`.
 5. `streamlit run dashboard/app_real.py --server.port 8502` lance le dashboard des données réelles.
+6. `python ml/score_stream_real.py` lance le scorer Kafka des données réelles (ou le bouton du dashboard).
